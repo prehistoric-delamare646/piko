@@ -114,16 +114,11 @@ func (d *downloader) downloadPartsToWriter(ctx context.Context, writer io.Writer
 						delay := time.Duration(0)
 						if rateLimited {
 							maxRequeues = max(d.retries*16, 64)
-							delay = rateLimitDelay(p.requeues + 1)
+							delay = rateLimitDelay(p.requeues)
 						} else {
 							scheduler.penalize(workerID)
 						}
 						if scheduler.requeue(p, offset, maxRequeues, delay) {
-							if delay > 0 {
-								if err := sleepWithContext(ctx, delay); err != nil {
-									return
-								}
-							}
 							continue
 						}
 						err = fmt.Errorf("part %d retry budget exhausted at byte %d: %w", p.index, offset, err)

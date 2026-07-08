@@ -292,10 +292,7 @@ func (s *dialIPSelector) ipCandidates(ips []net.IPAddr) ([]ipCandidate, bool) {
 				score /= 1 + float64(stat.failureStreak)
 			}
 		}
-		weight := max(int(score/avg*ipQualityUnknownWeight), 1)
-		if weight > ipQualityMaxWeight {
-			weight = ipQualityMaxWeight
-		}
+		weight := min(max(int(score/avg*ipQualityUnknownWeight), 1), ipQualityMaxWeight)
 		candidates = append(candidates, ipCandidate{ip: ip, score: score, weight: weight})
 	}
 	return candidates, known

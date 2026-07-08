@@ -2,6 +2,7 @@ package piko
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 const (
 	rangeLease         = 8 * time.Second
-	maxDynamicPartSize = 128 * 1024 * 1024
+	maxDynamicPartSize = 1024 * 1024 * 1024
 	minDynamicPartSize = 512 * 1024
 	minTailPartSize    = 128 * 1024
 	minStealPartSize   = 64 * 1024
@@ -17,7 +18,7 @@ const (
 	idlePartPoll       = 50 * time.Millisecond
 	tailPartsPerConn   = 4
 	speedSmoothFactor  = 0.35
-	partSizeTargetTime = 8 * time.Second
+	partSizeTargetTime = 16 * time.Second
 )
 
 type partScheduler struct {
@@ -85,7 +86,7 @@ func newPartScheduler(size int64, initialPartSize int64, concurrency int) *partS
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	maxPartSize := max(initialPartSize, min(int64(maxDynamicPartSize), initialPartSize*32))
+	maxPartSize := max(initialPartSize, min(int64(maxDynamicPartSize), initialPartSize*256))
 	if size > 0 {
 		maxPartSize = min(maxPartSize, size)
 	}
@@ -271,8 +272,8 @@ func (s *partScheduler) requeue(p part, offset int64, maxRequeues int, delay tim
 		chunks = append(chunks, part{start: start, end: end, requeues: p.requeues})
 		start = end + 1
 	}
-	for i := len(chunks) - 1; i >= 0; i-- {
-		s.queue = append(s.queue, chunks[i])
+	for _, chunk := range slices.Backward(chunks) {
+		s.queue = append(s.queue, chunk)
 	}
 	return true
 }
@@ -357,9 +358,13 @@ func (s *partScheduler) adjustPartSizeLocked(workerID int, bytes int64, elapsed 
 	current := s.workerPartSizeLocked(workerID)
 	target := int64(float64(bytes) / elapsed.Seconds() * partSizeTargetTime.Seconds())
 	target = clampPartSize(target, s.maxPartSize, s.maxPartSize, minDynamicPartSize)
+	if s.workerDone[workerID] == 0 {
+		s.workerSize[workerID] = target
+		return
+	}
 	switch {
 	case target > current:
-		s.workerSize[workerID] = min(target, current*2)
+		s.workerSize[workerID] = min(target, current*4)
 	case target < current/2:
 		s.workerSize[workerID] = max(target, current/2)
 	default:
