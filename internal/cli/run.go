@@ -24,6 +24,10 @@ func run(ctx context.Context, rawURL string, opts cliOptions) error {
 	if err != nil {
 		return err
 	}
+	addressFamily, err := piko.ParseAddressFamily(opts.ipFamily)
+	if err != nil {
+		return err
+	}
 	headers := parseHeaders(opts.headers)
 	var resolver piko.Resolver
 	if opts.dns != "" {
@@ -49,6 +53,7 @@ func run(ctx context.Context, rawURL string, opts cliOptions) error {
 		Headers:            headers,
 		Protocol:           protocol,
 		ConnectionStrategy: strategy,
+		AddressFamily:      addressFamily,
 		Proxy:              opts.proxy,
 		Resolver:           resolver,
 		Started: func(result piko.Result) {

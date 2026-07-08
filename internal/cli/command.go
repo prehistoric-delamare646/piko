@@ -19,6 +19,7 @@ type cliOptions struct {
 	stallTimeout time.Duration
 	protocol     string
 	strategy     string
+	ipFamily     string
 	headers      []string
 	proxy        string
 	dns          string
@@ -36,6 +37,7 @@ func NewRootCommand() *cobra.Command {
 		stallTimeout: defaults.StallTimeout,
 		protocol:     defaults.Protocol.String(),
 		strategy:     defaults.ConnectionStrategy.String(),
+		ipFamily:     defaults.AddressFamily.String(),
 		userAgent:    defaults.UserAgent,
 	}
 
@@ -74,8 +76,9 @@ func NewRootCommand() *cobra.Command {
 	flags.DurationVar(&opts.timeout, "timeout", opts.timeout, "dial/header timeout")
 	flags.DurationVar(&opts.stallTimeout, "stall-timeout", opts.stallTimeout, "cancel stalled reads")
 	flags.StringVar(&opts.protocol, "http", opts.protocol, "HTTP protocol: auto, h1, h2, h2c")
-	flags.StringVar(&opts.strategy, "connect-strategy", opts.strategy, "IP connection strategy: sequential, round-robin, fastest")
+	flags.StringVar(&opts.strategy, "connect-strategy", opts.strategy, "IP connection strategy: round-robin, sequential, fastest")
 	flags.StringVar(&opts.strategy, "connection-strategy", opts.strategy, "IP connection strategy alias for --connect-strategy")
+	flags.StringVar(&opts.ipFamily, "ip-family", opts.ipFamily, "IP family: auto, ipv4, ipv6, prefer-ipv4, prefer-ipv6")
 	flags.StringArrayVarP(&opts.headers, "header", "H", nil, "custom request header, repeatable")
 	flags.StringVar(&opts.proxy, "proxy", "", "proxy URL, env, direct, or none (default direct)")
 	flags.StringVar(&opts.dns, "dns", "", "resolver: system, udp://1.1.1.1, dot://1.1.1.1, or https://.../dns-query")

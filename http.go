@@ -16,6 +16,7 @@ type HTTPOptions struct {
 	MaxConnsPerHost    int
 	Protocol           Protocol
 	ConnectionStrategy ConnectionStrategy
+	AddressFamily      AddressFamily
 	Proxy              string
 	ProxyFunc          func(*http.Request) (*url.URL, error)
 	Resolver           Resolver
@@ -23,9 +24,11 @@ type HTTPOptions struct {
 
 func DefaultHTTPOptions() HTTPOptions {
 	return HTTPOptions{
-		Timeout:         DefaultTimeout,
-		MaxConnsPerHost: DefaultConnections,
-		Protocol:        ProtocolAuto,
+		Timeout:            DefaultTimeout,
+		MaxConnsPerHost:    DefaultConnections,
+		Protocol:           ProtocolAuto,
+		ConnectionStrategy: ConnectionStrategyRoundRobin,
+		AddressFamily:      AddressFamilyAuto,
 	}
 }
 
@@ -48,7 +51,7 @@ func NewTransport(opts HTTPOptions) (*http.Transport, error) {
 func newTransport(opts HTTPOptions, selector *dialIPSelector) (*http.Transport, error) {
 	opts = opts.normalize()
 	if selector == nil {
-		selector = newDialIPSelector(opts.ConnectionStrategy)
+		selector = newDialIPSelector(opts.ConnectionStrategy, opts.AddressFamily)
 	}
 
 	proxy, err := proxyFromOptions(opts)
@@ -75,26 +78,27 @@ func newTransport(opts HTTPOptions, selector *dialIPSelector) (*http.Transport, 
 	return transport, nil
 }
 
-func newHTTPClient(timeout time.Duration, maxConnsPerHost int, protocol Protocol, strategy ConnectionStrategy, proxy string, proxyFunc func(*http.Request) (*url.URL, error), resolver Resolver, selector *dialIPSelector) (*http.Client, error) {
+func newHTTPClient(timeout time.Duration, maxConnsPerHost int, protocol Protocol, strategy ConnectionStrategy, addressFamily AddressFamily, proxy string, proxyFunc func(*http.Request) (*url.URL, error), resolver Resolver, selector *dialIPSelector) (*http.Client, error) {
 	return newHTTPClientFromOptions(HTTPOptions{
 		Timeout:            timeout,
 		MaxConnsPerHost:    maxConnsPerHost,
 		Protocol:           protocol,
 		ConnectionStrategy: strategy,
+		AddressFamily:      addressFamily,
 		Proxy:              proxy,
 		ProxyFunc:          proxyFunc,
 		Resolver:           resolver,
 	}, selector)
 }
 
-func newHTTPClients(count int, timeout time.Duration, protocol Protocol, strategy ConnectionStrategy, proxy string, proxyFunc func(*http.Request) (*url.URL, error), resolver Resolver) ([]*http.Client, error) {
+func newHTTPClients(count int, timeout time.Duration, protocol Protocol, strategy ConnectionStrategy, addressFamily AddressFamily, proxy string, proxyFunc func(*http.Request) (*url.URL, error), resolver Resolver) ([]*http.Client, error) {
 	if count < 1 {
 		count = 1
 	}
-	selector := newDialIPSelector(strategy)
+	selector := newDialIPSelector(strategy, addressFamily)
 	clients := make([]*http.Client, 0, count)
 	for range count {
-		client, err := newHTTPClient(timeout, 1, protocol, strategy, proxy, proxyFunc, resolver, selector)
+		client, err := newHTTPClient(timeout, 1, protocol, strategy, addressFamily, proxy, proxyFunc, resolver, selector)
 		if err != nil {
 			return nil, err
 		}
@@ -110,6 +114,9 @@ func (o HTTPOptions) normalize() HTTPOptions {
 	}
 	if o.MaxConnsPerHost < 1 {
 		o.MaxConnsPerHost = 1
+	}
+	if o.ConnectionStrategy == ConnectionStrategyDefault {
+		o.ConnectionStrategy = defaults.ConnectionStrategy
 	}
 	return o
 }
@@ -148,10 +155,10 @@ func parseProxyURL(value string) (*url.URL, error) {
 
 func newDialContext(dialer *net.Dialer, resolver Resolver, selector *dialIPSelector) func(context.Context, string, string) (net.Conn, error) {
 	if selector == nil {
-		selector = newDialIPSelector(ConnectionStrategySequential)
+		selector = newDialIPSelector(ConnectionStrategyRoundRobin, AddressFamilyAuto)
 	}
 	if resolver == nil {
-		if selector.strategy == ConnectionStrategySequential {
+		if selector.strategy == ConnectionStrategySequential && selector.addressFamily == AddressFamilyAuto {
 			return dialer.DialContext
 		}
 		resolver = resolverFunc(net.DefaultResolver.LookupIPAddr)
@@ -167,17 +174,18 @@ func newDialContext(dialer *net.Dialer, resolver Resolver, selector *dialIPSelec
 			return nil, err
 		}
 		ips = filterIPsForNetwork(network, ips)
+		ips = filterIPsForAddressFamily(selector.addressFamily, ips)
 		if len(ips) == 0 {
 			return nil, &net.DNSError{Err: "no suitable address", Name: host}
 		}
+		ips = selector.order(ips)
 		if selector.strategy == ConnectionStrategyFastest {
 			return dialFastestIP(ctx, dialer, network, port, ips)
 		}
-		ips = selector.order(ips)
 
 		var lastErr error
 		for _, ip := range ips {
-			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+			conn, err := dialer.DialContext(ctx, network, joinIPPort(ip, port))
 			if err == nil {
 				return conn, nil
 			}
@@ -194,7 +202,7 @@ type dialResult struct {
 
 func dialFastestIP(ctx context.Context, dialer *net.Dialer, network string, port string, ips []net.IPAddr) (net.Conn, error) {
 	if len(ips) == 1 {
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		return dialer.DialContext(ctx, network, joinIPPort(ips[0], port))
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -203,7 +211,7 @@ func dialFastestIP(ctx context.Context, dialer *net.Dialer, network string, port
 	results := make(chan dialResult, len(ips))
 	var won atomic.Bool
 	for _, ip := range ips {
-		address := net.JoinHostPort(ip.IP.String(), port)
+		address := joinIPPort(ip, port)
 		go func() {
 			conn, err := dialer.DialContext(ctx, network, address)
 			if err == nil {
@@ -228,6 +236,14 @@ func dialFastestIP(ctx context.Context, dialer *net.Dialer, network string, port
 	return nil, lastErr
 }
 
+func joinIPPort(ip net.IPAddr, port string) string {
+	host := ip.IP.String()
+	if ip.Zone != "" {
+		host += "%" + ip.Zone
+	}
+	return net.JoinHostPort(host, port)
+}
+
 func filterIPsForNetwork(network string, ips []net.IPAddr) []net.IPAddr {
 	filtered := ips[:0]
 	for _, ip := range ips {
@@ -241,6 +257,29 @@ func filterIPsForNetwork(network string, ips []net.IPAddr) []net.IPAddr {
 		}
 	}
 	return filtered
+}
+
+func filterIPsForAddressFamily(addressFamily AddressFamily, ips []net.IPAddr) []net.IPAddr {
+	switch addressFamily {
+	case AddressFamilyIPv4:
+		filtered := ips[:0]
+		for _, ip := range ips {
+			if ip.IP.To4() != nil {
+				filtered = append(filtered, ip)
+			}
+		}
+		return filtered
+	case AddressFamilyIPv6:
+		filtered := ips[:0]
+		for _, ip := range ips {
+			if ip.IP.To4() == nil && ip.IP.To16() != nil {
+				filtered = append(filtered, ip)
+			}
+		}
+		return filtered
+	default:
+		return ips
+	}
 }
 
 func configureTransportProtocols(transport *http.Transport, protocol Protocol) {

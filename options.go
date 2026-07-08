@@ -29,6 +29,7 @@ type Options struct {
 	Headers            http.Header
 	Protocol           Protocol
 	ConnectionStrategy ConnectionStrategy
+	AddressFamily      AddressFamily
 	Proxy              string
 	ProxyFunc          func(*http.Request) (*url.URL, error)
 	Resolver           Resolver
@@ -57,13 +58,15 @@ type Result struct {
 
 func DefaultOptions() Options {
 	return Options{
-		Connections:  DefaultConnections,
-		Retries:      DefaultRetries,
-		PartSize:     DefaultPartSize,
-		Timeout:      DefaultTimeout,
-		StallTimeout: DefaultStallTimeout,
-		UserAgent:    DefaultUserAgent,
-		Protocol:     ProtocolAuto,
+		Connections:        DefaultConnections,
+		Retries:            DefaultRetries,
+		PartSize:           DefaultPartSize,
+		Timeout:            DefaultTimeout,
+		StallTimeout:       DefaultStallTimeout,
+		UserAgent:          DefaultUserAgent,
+		Protocol:           ProtocolAuto,
+		ConnectionStrategy: ConnectionStrategyRoundRobin,
+		AddressFamily:      AddressFamilyAuto,
 	}
 }
 
@@ -89,6 +92,9 @@ func (o Options) normalize() Options {
 	}
 	if o.UserAgent == "" {
 		o.UserAgent = defaults.UserAgent
+	}
+	if o.ConnectionStrategy == ConnectionStrategyDefault {
+		o.ConnectionStrategy = defaults.ConnectionStrategy
 	}
 	return o
 }

@@ -62,6 +62,12 @@ type networkConfig struct {
 	ConnectionStrategy      *string         `json:"connection-strategy" yaml:"connection-strategy" toml:"connection-strategy"`
 	ConnectionStrategySnake *string         `json:"connection_strategy" yaml:"connection_strategy" toml:"connection_strategy"`
 	ConnectionStrategyCamel *string         `json:"connectionStrategy" yaml:"connectionStrategy" toml:"connectionStrategy"`
+	IPFamily                *string         `json:"ip-family" yaml:"ip-family" toml:"ip-family"`
+	IPFamilySnake           *string         `json:"ip_family" yaml:"ip_family" toml:"ip_family"`
+	IPFamilyCamel           *string         `json:"ipFamily" yaml:"ipFamily" toml:"ipFamily"`
+	AddressFamily           *string         `json:"address-family" yaml:"address-family" toml:"address-family"`
+	AddressFamilySnake      *string         `json:"address_family" yaml:"address_family" toml:"address_family"`
+	AddressFamilyCamel      *string         `json:"addressFamily" yaml:"addressFamily" toml:"addressFamily"`
 	Timeout                 *configDuration `json:"timeout" yaml:"timeout" toml:"timeout"`
 	StallTimeout            *configDuration `json:"stall-timeout" yaml:"stall-timeout" toml:"stall-timeout"`
 	StallTimeoutSnake       *configDuration `json:"stall_timeout" yaml:"stall_timeout" toml:"stall_timeout"`
@@ -125,6 +131,16 @@ func applyConfig(cmd *cobra.Command, opts *cliOptions) error {
 		config.Network.ConnectionStrategyCamel,
 	); ok && !flagChanged(cmd, "connect-strategy", "connection-strategy") {
 		opts.strategy = value
+	}
+	if value, ok := firstString(
+		config.Network.IPFamily,
+		config.Network.IPFamilySnake,
+		config.Network.IPFamilyCamel,
+		config.Network.AddressFamily,
+		config.Network.AddressFamilySnake,
+		config.Network.AddressFamilyCamel,
+	); ok && !flagChanged(cmd, "ip-family") {
+		opts.ipFamily = value
 	}
 	if len(config.HTTP.Headers) > 0 && !flagChanged(cmd, "header") {
 		opts.headers = []string(config.HTTP.Headers)

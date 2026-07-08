@@ -44,7 +44,7 @@ func NewClient(opts Options) (*Client, error) {
 		client = clients[0]
 	default:
 		var err error
-		clients, err = newHTTPClients(opts.Connections, opts.Timeout, opts.Protocol, opts.ConnectionStrategy, opts.Proxy, opts.ProxyFunc, opts.Resolver)
+		clients, err = newHTTPClients(opts.Connections, opts.Timeout, opts.Protocol, opts.ConnectionStrategy, opts.AddressFamily, opts.Proxy, opts.ProxyFunc, opts.Resolver)
 		if err != nil {
 			return nil, err
 		}

@@ -35,11 +35,15 @@ piko --http h1.1 https://example.com/file.pkg
 # Custom request headers
 piko -H "Authorization: Bearer token" -H "Accept: application/octet-stream" https://example.com/file.pkg
 
-# Spread parallel dials across resolved IPs
+# Spread parallel dials across resolved IPs (default)
 piko -n 32 --connect-strategy round-robin https://example.com/file.pkg
 
 # Race resolved IPs and use the fastest connection
 piko -n 32 --connect-strategy fastest https://example.com/file.pkg
+
+# Limit or prefer an IP family
+piko -n 32 --ip-family ipv4 https://example.com/file.pkg
+piko -n 32 --ip-family prefer-ipv4 https://example.com/file.pkg
 
 # Proxy
 piko --proxy http://127.0.0.1:7890 https://example.com/file.pkg
@@ -66,6 +70,7 @@ http:
 network:
   proxy: direct
   resolver: https://cloudflare-dns.com/dns-query
+  ip-family: auto
 ```
 
 Useful flags:
@@ -81,7 +86,8 @@ Useful flags:
     --stall-timeout <duration>  cancel stalled reads
     --http <auto|h1|h2|h2c>     HTTP protocol
 -H, --header <header>           custom request header, repeatable
-    --connect-strategy <mode>   IP strategy: sequential, round-robin, or fastest
+    --connect-strategy <mode>   IP strategy: round-robin (default), sequential, or fastest
+    --ip-family <family>        auto, ipv4, ipv6, prefer-ipv4, or prefer-ipv6
     --proxy <url>               proxy URL, env, direct, or none (default direct)
     --dns <resolver>            system, udp://, tcp://, dot://, or https:// DoH URL
     --ua <ua>                   user agent
