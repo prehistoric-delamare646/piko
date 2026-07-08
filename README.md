@@ -2,9 +2,11 @@
 
 [简体中文](README.zh-CN.md)
 
-A small parallel downloader for CLI and Go programs.
+A small segmented downloader for CLI and Go programs.
 
 `piko` can save to a file, discard output for speed tests, or return downloaded bytes to your own code. It supports HTTP protocol selection, connection strategies, custom DNS resolvers, proxies, retries, and progress callbacks.
+
+`piko` currently supports HTTP range/segmented downloads. For ordinary single-stream downloads, use `curl` instead.
 
 ## Install
 
