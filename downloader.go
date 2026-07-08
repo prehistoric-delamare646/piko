@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -13,6 +14,7 @@ import (
 type downloader struct {
 	client       *http.Client
 	clients      []*http.Client
+	selector     *dialIPSelector
 	url          string
 	ua           string
 	headers      http.Header
@@ -22,12 +24,17 @@ type downloader struct {
 	total        int64
 
 	done atomic.Int64
+
+	speedMu      sync.Mutex
+	nextSpeedID  int64
+	activeSpeeds map[int64]float64
 }
 
 type Client struct {
-	opts    Options
-	client  *http.Client
-	clients []*http.Client
+	opts     Options
+	client   *http.Client
+	clients  []*http.Client
+	selector *dialIPSelector
 }
 
 func NewClient(opts Options) (*Client, error) {
@@ -35,6 +42,7 @@ func NewClient(opts Options) (*Client, error) {
 
 	clients := compactHTTPClients(opts.HTTPClients)
 	client := opts.HTTPClient
+	var selector *dialIPSelector
 	switch {
 	case client != nil:
 		if len(clients) == 0 {
@@ -44,7 +52,7 @@ func NewClient(opts Options) (*Client, error) {
 		client = clients[0]
 	default:
 		var err error
-		clients, err = newHTTPClients(opts.Connections, opts.Timeout, opts.Protocol, opts.ConnectionStrategy, opts.AddressFamily, opts.Proxy, opts.ProxyFunc, opts.Resolver)
+		clients, selector, err = newHTTPClients(opts.Connections, opts.Timeout, opts.Protocol, opts.ConnectionStrategy, opts.AddressFamily, opts.Proxy, opts.ProxyFunc, opts.Resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -52,17 +60,17 @@ func NewClient(opts Options) (*Client, error) {
 	}
 
 	opts.Headers = cloneHeader(opts.Headers)
-	return &Client{opts: opts, client: client, clients: clients}, nil
+	return &Client{opts: opts, client: client, clients: clients, selector: selector}, nil
 }
 
 func (c *Client) Download(ctx context.Context, rawURL string) (Result, error) {
-	d := newDownloader(rawURL, c.opts, c.client, c.clients)
+	d := newDownloader(rawURL, c.opts, c.client, c.clients, c.selector)
 	return d.run(ctx, c.opts)
 }
 
 // DownloadBytes downloads rawURL into memory without creating files.
 func (c *Client) DownloadBytes(ctx context.Context, rawURL string) ([]byte, Result, error) {
-	d := newDownloader(rawURL, c.opts, c.client, c.clients)
+	d := newDownloader(rawURL, c.opts, c.client, c.clients, c.selector)
 	return d.runBytes(ctx, c.opts)
 }
 
@@ -84,10 +92,11 @@ func DownloadBytes(ctx context.Context, rawURL string, opts Options) ([]byte, Re
 	return client.DownloadBytes(ctx, rawURL)
 }
 
-func newDownloader(rawURL string, opts Options, client *http.Client, clients []*http.Client) *downloader {
+func newDownloader(rawURL string, opts Options, client *http.Client, clients []*http.Client, selector *dialIPSelector) *downloader {
 	return &downloader{
 		client:       client,
 		clients:      clients,
+		selector:     selector,
 		url:          rawURL,
 		ua:           opts.UserAgent,
 		headers:      cloneHeader(opts.Headers),

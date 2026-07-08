@@ -1,10 +1,26 @@
 package piko
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
+)
+
+const (
+	ipQualitySmoothFactor       = 0.35
+	ipQualityUnknownWeight      = 4
+	ipQualityMaxWeight          = 12
+	ipQualityMinSampleBytes     = 256 * 1024
+	ipQualityMinSampleDuration  = 300 * time.Millisecond
+	ipQualitySlowRatio          = 0.55
+	ipQualitySlowThreshold      = 3
+	ipQualityFailureThreshold   = 3
+	ipQualityQuarantineDuration = 45 * time.Second
 )
 
 type ConnectionStrategy int
@@ -100,9 +116,21 @@ type dialIPSelector struct {
 	strategy      ConnectionStrategy
 	addressFamily AddressFamily
 	next          atomic.Uint64
+	nextWeighted  atomic.Uint64
 	next4         atomic.Uint64
 	next6         atomic.Uint64
 	nextAny       atomic.Uint64
+
+	mu    sync.Mutex
+	stats map[string]*ipQuality
+}
+
+type ipQuality struct {
+	emaBps           float64
+	samples          int
+	slowStreak       int
+	failureStreak    int
+	quarantinedUntil time.Time
 }
 
 func newDialIPSelector(strategy ConnectionStrategy, addressFamily AddressFamily) *dialIPSelector {
@@ -125,19 +153,21 @@ func (s *dialIPSelector) order(ips []net.IPAddr) []net.IPAddr {
 }
 
 func (s *dialIPSelector) sequentialOrder(ips []net.IPAddr) []net.IPAddr {
+	ips = s.availableIPs(ips)
 	switch s.addressFamily {
 	case AddressFamilyPreferIPv4:
 		v4, v6, other := splitIPFamilies(ips)
-		return appendFamilies(v4, other, v6)
+		return s.weightedOrder(appendFamilies(v4, other, v6))
 	case AddressFamilyPreferIPv6:
 		v4, v6, other := splitIPFamilies(ips)
-		return appendFamilies(v6, other, v4)
+		return s.weightedOrder(appendFamilies(v6, other, v4))
 	default:
-		return ips
+		return s.weightedOrder(ips)
 	}
 }
 
 func (s *dialIPSelector) roundRobinOrder(ips []net.IPAddr) []net.IPAddr {
+	ips = s.availableIPs(ips)
 	v4, v6, other := splitIPFamilies(ips)
 	v4 = rotateIPs(v4, &s.next4)
 	v6 = rotateIPs(v6, &s.next6)
@@ -146,22 +176,206 @@ func (s *dialIPSelector) roundRobinOrder(ips []net.IPAddr) []net.IPAddr {
 	switch {
 	case len(v4) > 0 && len(v6) > 0:
 		if s.addressFamily == AddressFamilyPreferIPv4 {
-			return appendInterleaved(v4, v6, other)
+			return s.weightedOrder(appendInterleaved(v4, v6, other))
 		}
 		if s.addressFamily == AddressFamilyPreferIPv6 {
-			return appendInterleaved(v6, v4, other)
+			return s.weightedOrder(appendInterleaved(v6, v4, other))
 		}
 		if s.next.Add(1)%2 == 1 {
-			return appendInterleaved(v4, v6, other)
+			return s.weightedOrder(appendInterleaved(v4, v6, other))
 		}
-		return appendInterleaved(v6, v4, other)
+		return s.weightedOrder(appendInterleaved(v6, v4, other))
 	case len(v4) > 0:
-		return append(append([]net.IPAddr{}, v4...), other...)
+		return s.weightedOrder(append(append([]net.IPAddr{}, v4...), other...))
 	case len(v6) > 0:
-		return append(append([]net.IPAddr{}, v6...), other...)
+		return s.weightedOrder(append(append([]net.IPAddr{}, v6...), other...))
 	default:
-		return other
+		return s.weightedOrder(other)
 	}
+}
+
+func (s *dialIPSelector) availableIPs(ips []net.IPAddr) []net.IPAddr {
+	if s == nil || len(ips) < 2 {
+		return ips
+	}
+
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.stats) == 0 {
+		return ips
+	}
+
+	available := make([]net.IPAddr, 0, len(ips))
+	for _, ip := range ips {
+		stat := s.stats[ipAddrKey(ip)]
+		if stat == nil || stat.quarantinedUntil.Before(now) {
+			available = append(available, ip)
+		}
+	}
+	if len(available) == 0 {
+		return ips
+	}
+	return available
+}
+
+func (s *dialIPSelector) weightedOrder(ips []net.IPAddr) []net.IPAddr {
+	if s == nil || len(ips) < 2 {
+		return ips
+	}
+
+	candidates, known := s.ipCandidates(ips)
+	if !known {
+		return ips
+	}
+
+	totalWeight := 0
+	for _, candidate := range candidates {
+		totalWeight += candidate.weight
+	}
+	pick := int(s.nextWeighted.Add(1)-1) % totalWeight
+
+	selected := 0
+	for i, candidate := range candidates {
+		if pick < candidate.weight {
+			selected = i
+			break
+		}
+		pick -= candidate.weight
+	}
+
+	chosen := candidates[selected]
+	rest := append(candidates[:selected:selected], candidates[selected+1:]...)
+	sort.SliceStable(rest, func(i, j int) bool {
+		return rest[i].score > rest[j].score
+	})
+
+	ordered := make([]net.IPAddr, 0, len(candidates))
+	ordered = append(ordered, chosen.ip)
+	for _, candidate := range rest {
+		ordered = append(ordered, candidate.ip)
+	}
+	return ordered
+}
+
+type ipCandidate struct {
+	ip     net.IPAddr
+	score  float64
+	weight int
+}
+
+func (s *dialIPSelector) ipCandidates(ips []net.IPAddr) ([]ipCandidate, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.stats) == 0 {
+		return nil, false
+	}
+
+	avg := s.averageIPSpeedLocked("")
+	if avg <= 0 {
+		return nil, false
+	}
+
+	known := false
+	candidates := make([]ipCandidate, 0, len(ips))
+	for _, ip := range ips {
+		key := ipAddrKey(ip)
+		stat := s.stats[key]
+		score := avg
+		if stat != nil && stat.samples > 0 && stat.emaBps > 0 {
+			known = true
+			score = stat.emaBps
+			if stat.slowStreak > 0 {
+				score /= 1 + float64(stat.slowStreak)
+			}
+			if stat.failureStreak > 0 {
+				score /= 1 + float64(stat.failureStreak)
+			}
+		}
+		weight := int(score / avg * ipQualityUnknownWeight)
+		if weight < 1 {
+			weight = 1
+		}
+		if weight > ipQualityMaxWeight {
+			weight = ipQualityMaxWeight
+		}
+		candidates = append(candidates, ipCandidate{ip: ip, score: score, weight: weight})
+	}
+	return candidates, known
+}
+
+func (s *dialIPSelector) recordIP(key string, bytes int64, elapsed time.Duration, err error) {
+	if s == nil || key == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stats == nil {
+		s.stats = make(map[string]*ipQuality)
+	}
+	stat := s.stats[key]
+	if stat == nil {
+		stat = &ipQuality{}
+		s.stats[key] = stat
+	}
+
+	if err != nil && bytes <= 0 {
+		stat.failureStreak++
+		if stat.failureStreak >= ipQualityFailureThreshold {
+			stat.quarantinedUntil = time.Now().Add(ipQualityQuarantineDuration)
+		}
+		return
+	}
+	if elapsed < ipQualityMinSampleDuration || bytes < ipQualityMinSampleBytes {
+		return
+	}
+
+	speed := float64(bytes) / elapsed.Seconds()
+	if speed <= 0 {
+		return
+	}
+	if stat.emaBps <= 0 {
+		stat.emaBps = speed
+	} else {
+		stat.emaBps = stat.emaBps*(1-ipQualitySmoothFactor) + speed*ipQualitySmoothFactor
+	}
+	stat.samples++
+
+	avg := s.averageIPSpeedLocked(key)
+	if errors.Is(err, errSlowConnection) || (avg > 0 && speed < avg*ipQualitySlowRatio) {
+		stat.slowStreak++
+	} else {
+		stat.slowStreak = 0
+		stat.failureStreak = 0
+		stat.quarantinedUntil = time.Time{}
+	}
+	if stat.slowStreak >= ipQualitySlowThreshold {
+		stat.quarantinedUntil = time.Now().Add(ipQualityQuarantineDuration)
+	}
+}
+
+func (s *dialIPSelector) averageIPSpeedLocked(exclude string) float64 {
+	var total float64
+	var count int
+	for key, stat := range s.stats {
+		if key == exclude || stat.samples == 0 || stat.emaBps <= 0 {
+			continue
+		}
+		total += stat.emaBps
+		count++
+	}
+	if count == 0 {
+		if exclude == "" {
+			return 0
+		}
+		stat := s.stats[exclude]
+		if stat != nil {
+			return stat.emaBps
+		}
+		return 0
+	}
+	return total / float64(count)
 }
 
 func splitIPFamilies(ips []net.IPAddr) ([]net.IPAddr, []net.IPAddr, []net.IPAddr) {
@@ -218,4 +432,27 @@ func appendInterleaved(first []net.IPAddr, second []net.IPAddr, rest []net.IPAdd
 		}
 	}
 	return append(ordered, rest...)
+}
+
+func ipAddrKey(ip net.IPAddr) string {
+	key := ip.IP.String()
+	if ip.Zone != "" {
+		key += "%" + ip.Zone
+	}
+	return key
+}
+
+func remoteAddrIPKey(addr net.Addr) string {
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		return ipAddrKey(net.IPAddr{IP: a.IP, Zone: a.Zone})
+	case *net.UDPAddr:
+		return ipAddrKey(net.IPAddr{IP: a.IP, Zone: a.Zone})
+	default:
+		host, _, err := net.SplitHostPort(addr.String())
+		if err != nil {
+			return ""
+		}
+		return host
+	}
 }

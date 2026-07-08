@@ -91,7 +91,7 @@ func newHTTPClient(timeout time.Duration, maxConnsPerHost int, protocol Protocol
 	}, selector)
 }
 
-func newHTTPClients(count int, timeout time.Duration, protocol Protocol, strategy ConnectionStrategy, addressFamily AddressFamily, proxy string, proxyFunc func(*http.Request) (*url.URL, error), resolver Resolver) ([]*http.Client, error) {
+func newHTTPClients(count int, timeout time.Duration, protocol Protocol, strategy ConnectionStrategy, addressFamily AddressFamily, proxy string, proxyFunc func(*http.Request) (*url.URL, error), resolver Resolver) ([]*http.Client, *dialIPSelector, error) {
 	if count < 1 {
 		count = 1
 	}
@@ -100,11 +100,11 @@ func newHTTPClients(count int, timeout time.Duration, protocol Protocol, strateg
 	for range count {
 		client, err := newHTTPClient(timeout, 1, protocol, strategy, addressFamily, proxy, proxyFunc, resolver, selector)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		clients = append(clients, client)
 	}
-	return clients, nil
+	return clients, selector, nil
 }
 
 func (o HTTPOptions) normalize() HTTPOptions {
@@ -180,7 +180,7 @@ func newDialContext(dialer *net.Dialer, resolver Resolver, selector *dialIPSelec
 		}
 		ips = selector.order(ips)
 		if selector.strategy == ConnectionStrategyFastest {
-			return dialFastestIP(ctx, dialer, network, port, ips)
+			return dialFastestIP(ctx, dialer, selector, network, port, ips)
 		}
 
 		var lastErr error
@@ -188,6 +188,9 @@ func newDialContext(dialer *net.Dialer, resolver Resolver, selector *dialIPSelec
 			conn, err := dialer.DialContext(ctx, network, joinIPPort(ip, port))
 			if err == nil {
 				return conn, nil
+			}
+			if ctx.Err() == nil {
+				selector.recordIP(ipAddrKey(ip), 0, 0, err)
 			}
 			lastErr = err
 		}
@@ -200,9 +203,13 @@ type dialResult struct {
 	err  error
 }
 
-func dialFastestIP(ctx context.Context, dialer *net.Dialer, network string, port string, ips []net.IPAddr) (net.Conn, error) {
+func dialFastestIP(ctx context.Context, dialer *net.Dialer, selector *dialIPSelector, network string, port string, ips []net.IPAddr) (net.Conn, error) {
 	if len(ips) == 1 {
-		return dialer.DialContext(ctx, network, joinIPPort(ips[0], port))
+		conn, err := dialer.DialContext(ctx, network, joinIPPort(ips[0], port))
+		if err != nil {
+			selector.recordIP(ipAddrKey(ips[0]), 0, 0, err)
+		}
+		return conn, err
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -214,6 +221,9 @@ func dialFastestIP(ctx context.Context, dialer *net.Dialer, network string, port
 		address := joinIPPort(ip, port)
 		go func() {
 			conn, err := dialer.DialContext(ctx, network, address)
+			if err != nil && ctx.Err() == nil {
+				selector.recordIP(ipAddrKey(ip), 0, 0, err)
+			}
 			if err == nil {
 				if !won.CompareAndSwap(false, true) {
 					_ = conn.Close()
