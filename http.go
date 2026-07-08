@@ -96,6 +96,7 @@ func newHTTPClients(count int, timeout time.Duration, protocol Protocol, strateg
 		count = 1
 	}
 	selector := newDialIPSelector(strategy, addressFamily)
+	resolver = newCachedResolver(resolverForDial(resolver))
 	clients := make([]*http.Client, 0, count)
 	for range count {
 		client, err := newHTTPClient(timeout, 1, protocol, strategy, addressFamily, proxy, proxyFunc, resolver, selector)
@@ -157,12 +158,7 @@ func newDialContext(dialer *net.Dialer, resolver Resolver, selector *dialIPSelec
 	if selector == nil {
 		selector = newDialIPSelector(ConnectionStrategyRoundRobin, AddressFamilyAuto)
 	}
-	if resolver == nil {
-		if selector.strategy == ConnectionStrategySequential && selector.addressFamily == AddressFamilyAuto {
-			return dialer.DialContext
-		}
-		resolver = resolverFunc(net.DefaultResolver.LookupIPAddr)
-	}
+	resolver = newCachedResolver(resolverForDial(resolver))
 	return func(ctx context.Context, network string, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil || net.ParseIP(host) != nil {
@@ -196,6 +192,13 @@ func newDialContext(dialer *net.Dialer, resolver Resolver, selector *dialIPSelec
 		}
 		return nil, lastErr
 	}
+}
+
+func resolverForDial(resolver Resolver) Resolver {
+	if resolver != nil {
+		return resolver
+	}
+	return resolverFunc(net.DefaultResolver.LookupIPAddr)
 }
 
 type dialResult struct {

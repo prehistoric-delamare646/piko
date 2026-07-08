@@ -81,8 +81,7 @@ func NewRootCommand() *cobra.Command {
 	flags.StringVar(&opts.ipFamily, "ip-family", opts.ipFamily, "IP family: auto, ipv4, ipv6, prefer-ipv4, prefer-ipv6")
 	flags.StringArrayVarP(&opts.headers, "header", "H", nil, "custom request header, repeatable")
 	flags.StringVar(&opts.proxy, "proxy", "", "proxy URL, env, direct, or none (default direct)")
-	flags.StringVar(&opts.dns, "dns", "", "resolver: system, udp://1.1.1.1, dot://1.1.1.1, or https://.../dns-query")
-	flags.StringVar(&opts.dns, "resolver", "", "resolver alias for --dns")
+	flags.StringVar(&opts.dns, "dns", "", "DNS: system, udp://1.1.1.1, dot://1.1.1.1, or https://.../dns-query")
 	flags.StringVar(&opts.userAgent, "ua", opts.userAgent, "user agent")
 	flags.StringVar(&opts.userAgent, "user-agent", opts.userAgent, "user agent")
 	return cmd

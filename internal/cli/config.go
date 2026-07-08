@@ -55,7 +55,6 @@ type httpConfig struct {
 type networkConfig struct {
 	Proxy                   *string         `json:"proxy" yaml:"proxy" toml:"proxy"`
 	DNS                     *string         `json:"dns" yaml:"dns" toml:"dns"`
-	Resolver                *string         `json:"resolver" yaml:"resolver" toml:"resolver"`
 	ConnectStrategy         *string         `json:"connect-strategy" yaml:"connect-strategy" toml:"connect-strategy"`
 	ConnectStrategySnake    *string         `json:"connect_strategy" yaml:"connect_strategy" toml:"connect_strategy"`
 	ConnectStrategyCamel    *string         `json:"connectStrategy" yaml:"connectStrategy" toml:"connectStrategy"`
@@ -148,7 +147,7 @@ func applyConfig(cmd *cobra.Command, opts *cliOptions) error {
 	if value, ok := firstString(config.Network.Proxy); ok && !flagChanged(cmd, "proxy") {
 		opts.proxy = value
 	}
-	if value, ok := firstString(config.Network.Resolver, config.Network.DNS); ok && !flagChanged(cmd, "dns", "resolver") {
+	if value, ok := firstString(config.Network.DNS); ok && !flagChanged(cmd, "dns") {
 		opts.dns = value
 	}
 	if value, ok := firstString(config.HTTP.UserAgent, config.HTTP.UserAgentSnake, config.HTTP.UserAgentCamel, config.HTTP.UA); ok && !flagChanged(cmd, "ua", "user-agent") {

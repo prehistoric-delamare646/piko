@@ -69,7 +69,7 @@ http:
     - "Authorization: Bearer token"
 network:
   proxy: direct
-  resolver: https://cloudflare-dns.com/dns-query
+  dns: https://cloudflare-dns.com/dns-query
   ip-family: auto
 ```
 
@@ -89,7 +89,7 @@ Useful flags:
     --connect-strategy <mode>   IP strategy: round-robin (default), sequential, or fastest
     --ip-family <family>        auto, ipv4, ipv6, prefer-ipv4, or prefer-ipv6
     --proxy <url>               proxy URL, env, direct, or none (default direct)
-    --dns <resolver>            system, udp://, tcp://, dot://, or https:// DoH URL
+    --dns <dns>                 system, udp://, tcp://, dot://, or https:// DoH URL
     --ua <ua>                   user agent
 ```
 
