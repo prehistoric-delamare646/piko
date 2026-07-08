@@ -1,0 +1,43 @@
+package piko
+
+import (
+	"context"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func parseContentRangeSize(value string) int64 {
+	slash := strings.LastIndexByte(value, '/')
+	if slash < 0 || slash == len(value)-1 {
+		return -1
+	}
+	sizeText := strings.TrimSpace(value[slash+1:])
+	if sizeText == "*" {
+		return -1
+	}
+	size, err := strconv.ParseInt(sizeText, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return size
+}
+
+func retryDelay(attempt int) time.Duration {
+	delay := time.Duration(250*(1<<attempt)) * time.Millisecond
+	if delay > 3*time.Second {
+		return 3 * time.Second
+	}
+	return delay
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

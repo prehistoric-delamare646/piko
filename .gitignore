@@ -1,0 +1,24 @@
+# Binaries
+piko
+piko.exe
+piko-*
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build/test output
+*.test
+*.out
+coverage.*
+dist/
+bin/
+
+# Downloader temp files
+*.part
+
+# Local editor/OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
