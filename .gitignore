@@ -1,7 +1,7 @@
 # Binaries
-piko
-piko.exe
-piko-*
+/piko
+/piko.exe
+/piko-*
 *.exe
 *.dll
 *.so

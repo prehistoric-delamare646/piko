@@ -52,9 +52,26 @@ piko --dns dot://1.1.1.1?name=cloudflare-dns.com https://example.com/file.pkg
 piko --dns https://cloudflare-dns.com/dns-query https://example.com/file.pkg
 ```
 
+Config is loaded from `~/.piko/config.yaml`, `~/.piko/config.yml`, `~/.piko/config.toml`, or `~/.piko/config.json`. CLI flags and positional output override config values.
+
+```yaml
+download:
+  connections: 32
+  part-size: 4MiB
+http:
+  protocol: h2
+  user-agent: piko/1.0
+  headers:
+    - "Authorization: Bearer token"
+network:
+  proxy: direct
+  resolver: https://cloudflare-dns.com/dns-query
+```
+
 Useful flags:
 
 ```text
+    --config <path>             config file or directory (default ~/.piko)
 -o, --output <path>             output path or NUL / /dev/null
 -f, --force                     overwrite output
 -n, --connections <n>           parallel connections
