@@ -77,7 +77,6 @@ func NewRootCommand() *cobra.Command {
 	flags.DurationVar(&opts.stallTimeout, "stall-timeout", opts.stallTimeout, "cancel stalled reads")
 	flags.StringVar(&opts.protocol, "http", opts.protocol, "HTTP protocol: auto, h1, h2, h2c")
 	flags.StringVar(&opts.strategy, "connect-strategy", opts.strategy, "IP connection strategy: round-robin, sequential, fastest")
-	flags.StringVar(&opts.strategy, "connection-strategy", opts.strategy, "IP connection strategy alias for --connect-strategy")
 	flags.StringVar(&opts.ipFamily, "ip-family", opts.ipFamily, "IP family: auto, ipv4, ipv6, prefer-ipv4, prefer-ipv6")
 	flags.StringArrayVarP(&opts.headers, "header", "H", nil, `custom request header, e.g. "Name: value"; repeatable`)
 	flags.StringVar(&opts.proxy, "proxy", "", "proxy URL, env, direct, or none (default direct)")

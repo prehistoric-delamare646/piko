@@ -1,0 +1,35 @@
+# piko config example.
+# Put this file at ~/.piko/config.yaml, or pass it with --config.
+# CLI flags and positional output override values here.
+
+download:
+  # Output file. Use NUL on Windows or /dev/null on Unix to discard output.
+  output: file.pkg
+  force: false
+  connections: 32
+  retry: 3
+  part-size: 4MiB
+  timeout: 30s
+  stall-timeout: 15s
+
+http:
+  # auto, h1, h1.1, h2, or h2c
+  protocol: auto
+  user-agent: piko/1.0
+  headers:
+    - "Authorization: Bearer token"
+    - "Accept: application/octet-stream"
+
+network:
+  # direct, none, off, env, or a proxy URL.
+  # Supports http://, https://, socks4://, socks5://, and socks5h://.
+  proxy: direct
+
+  # system, udp://, tcp://, dot://, or https:// DoH URL.
+  dns: system
+
+  # round-robin, sequential, or fastest.
+  connect-strategy: round-robin
+
+  # auto, ipv4, ipv6, prefer-ipv4, or prefer-ipv6.
+  ip-family: auto

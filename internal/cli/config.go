@@ -29,47 +29,26 @@ type fileConfig struct {
 }
 
 type downloadConfig struct {
-	Output            *string         `json:"output" yaml:"output" toml:"output"`
-	Force             *bool           `json:"force" yaml:"force" toml:"force"`
-	Connections       *int            `json:"connections" yaml:"connections" toml:"connections"`
-	Retry             *int            `json:"retry" yaml:"retry" toml:"retry"`
-	Retries           *int            `json:"retries" yaml:"retries" toml:"retries"`
-	PartSize          *string         `json:"part-size" yaml:"part-size" toml:"part-size"`
-	PartSizeSnake     *string         `json:"part_size" yaml:"part_size" toml:"part_size"`
-	PartSizeCamel     *string         `json:"partSize" yaml:"partSize" toml:"partSize"`
-	Timeout           *configDuration `json:"timeout" yaml:"timeout" toml:"timeout"`
-	StallTimeout      *configDuration `json:"stall-timeout" yaml:"stall-timeout" toml:"stall-timeout"`
-	StallTimeoutSnake *configDuration `json:"stall_timeout" yaml:"stall_timeout" toml:"stall_timeout"`
-	StallTimeoutCamel *configDuration `json:"stallTimeout" yaml:"stallTimeout" toml:"stallTimeout"`
+	Output       *string         `json:"output" yaml:"output" toml:"output"`
+	Force        *bool           `json:"force" yaml:"force" toml:"force"`
+	Connections  *int            `json:"connections" yaml:"connections" toml:"connections"`
+	Retry        *int            `json:"retry" yaml:"retry" toml:"retry"`
+	PartSize     *string         `json:"part-size" yaml:"part-size" toml:"part-size"`
+	Timeout      *configDuration `json:"timeout" yaml:"timeout" toml:"timeout"`
+	StallTimeout *configDuration `json:"stall-timeout" yaml:"stall-timeout" toml:"stall-timeout"`
 }
 
 type httpConfig struct {
-	Protocol       *string       `json:"protocol" yaml:"protocol" toml:"protocol"`
-	UserAgent      *string       `json:"user-agent" yaml:"user-agent" toml:"user-agent"`
-	UserAgentSnake *string       `json:"user_agent" yaml:"user_agent" toml:"user_agent"`
-	UserAgentCamel *string       `json:"userAgent" yaml:"userAgent" toml:"userAgent"`
-	Headers        configHeaders `json:"headers" yaml:"headers" toml:"headers"`
+	Protocol  *string       `json:"protocol" yaml:"protocol" toml:"protocol"`
+	UserAgent *string       `json:"user-agent" yaml:"user-agent" toml:"user-agent"`
+	Headers   configHeaders `json:"headers" yaml:"headers" toml:"headers"`
 }
 
 type networkConfig struct {
-	Proxy                   *string         `json:"proxy" yaml:"proxy" toml:"proxy"`
-	DNS                     *string         `json:"dns" yaml:"dns" toml:"dns"`
-	ConnectStrategy         *string         `json:"connect-strategy" yaml:"connect-strategy" toml:"connect-strategy"`
-	ConnectStrategySnake    *string         `json:"connect_strategy" yaml:"connect_strategy" toml:"connect_strategy"`
-	ConnectStrategyCamel    *string         `json:"connectStrategy" yaml:"connectStrategy" toml:"connectStrategy"`
-	ConnectionStrategy      *string         `json:"connection-strategy" yaml:"connection-strategy" toml:"connection-strategy"`
-	ConnectionStrategySnake *string         `json:"connection_strategy" yaml:"connection_strategy" toml:"connection_strategy"`
-	ConnectionStrategyCamel *string         `json:"connectionStrategy" yaml:"connectionStrategy" toml:"connectionStrategy"`
-	IPFamily                *string         `json:"ip-family" yaml:"ip-family" toml:"ip-family"`
-	IPFamilySnake           *string         `json:"ip_family" yaml:"ip_family" toml:"ip_family"`
-	IPFamilyCamel           *string         `json:"ipFamily" yaml:"ipFamily" toml:"ipFamily"`
-	AddressFamily           *string         `json:"address-family" yaml:"address-family" toml:"address-family"`
-	AddressFamilySnake      *string         `json:"address_family" yaml:"address_family" toml:"address_family"`
-	AddressFamilyCamel      *string         `json:"addressFamily" yaml:"addressFamily" toml:"addressFamily"`
-	Timeout                 *configDuration `json:"timeout" yaml:"timeout" toml:"timeout"`
-	StallTimeout            *configDuration `json:"stall-timeout" yaml:"stall-timeout" toml:"stall-timeout"`
-	StallTimeoutSnake       *configDuration `json:"stall_timeout" yaml:"stall_timeout" toml:"stall_timeout"`
-	StallTimeoutCamel       *configDuration `json:"stallTimeout" yaml:"stallTimeout" toml:"stallTimeout"`
+	Proxy           *string `json:"proxy" yaml:"proxy" toml:"proxy"`
+	DNS             *string `json:"dns" yaml:"dns" toml:"dns"`
+	ConnectStrategy *string `json:"connect-strategy" yaml:"connect-strategy" toml:"connect-strategy"`
+	IPFamily        *string `json:"ip-family" yaml:"ip-family" toml:"ip-family"`
 }
 
 type configHeaders []string
@@ -98,46 +77,25 @@ func applyConfig(cmd *cobra.Command, opts *cliOptions) error {
 	if value, ok := firstInt(config.Download.Connections); ok && !flagChanged(cmd, "connections") {
 		opts.connections = value
 	}
-	if value, ok := firstInt(config.Download.Retry, config.Download.Retries); ok && !flagChanged(cmd, "retry") {
+	if value, ok := firstInt(config.Download.Retry); ok && !flagChanged(cmd, "retry") {
 		opts.retries = value
 	}
-	if value, ok := firstString(config.Download.PartSize, config.Download.PartSizeSnake, config.Download.PartSizeCamel); ok && !flagChanged(cmd, "part-size") {
+	if value, ok := firstString(config.Download.PartSize); ok && !flagChanged(cmd, "part-size") {
 		opts.partSize = value
 	}
-	if value, ok := firstDuration(config.Download.Timeout, config.Network.Timeout); ok && !flagChanged(cmd, "timeout") {
+	if value, ok := firstDuration(config.Download.Timeout); ok && !flagChanged(cmd, "timeout") {
 		opts.timeout = value
 	}
-	if value, ok := firstDuration(
-		config.Download.StallTimeout,
-		config.Download.StallTimeoutSnake,
-		config.Download.StallTimeoutCamel,
-		config.Network.StallTimeout,
-		config.Network.StallTimeoutSnake,
-		config.Network.StallTimeoutCamel,
-	); ok && !flagChanged(cmd, "stall-timeout") {
+	if value, ok := firstDuration(config.Download.StallTimeout); ok && !flagChanged(cmd, "stall-timeout") {
 		opts.stallTimeout = value
 	}
 	if value, ok := firstString(config.HTTP.Protocol); ok && !flagChanged(cmd, "http") {
 		opts.protocol = value
 	}
-	if value, ok := firstString(
-		config.Network.ConnectStrategy,
-		config.Network.ConnectStrategySnake,
-		config.Network.ConnectStrategyCamel,
-		config.Network.ConnectionStrategy,
-		config.Network.ConnectionStrategySnake,
-		config.Network.ConnectionStrategyCamel,
-	); ok && !flagChanged(cmd, "connect-strategy", "connection-strategy") {
+	if value, ok := firstString(config.Network.ConnectStrategy); ok && !flagChanged(cmd, "connect-strategy") {
 		opts.strategy = value
 	}
-	if value, ok := firstString(
-		config.Network.IPFamily,
-		config.Network.IPFamilySnake,
-		config.Network.IPFamilyCamel,
-		config.Network.AddressFamily,
-		config.Network.AddressFamilySnake,
-		config.Network.AddressFamilyCamel,
-	); ok && !flagChanged(cmd, "ip-family") {
+	if value, ok := firstString(config.Network.IPFamily); ok && !flagChanged(cmd, "ip-family") {
 		opts.ipFamily = value
 	}
 	if len(config.HTTP.Headers) > 0 && !flagChanged(cmd, "header") {
@@ -149,7 +107,7 @@ func applyConfig(cmd *cobra.Command, opts *cliOptions) error {
 	if value, ok := firstString(config.Network.DNS); ok && !flagChanged(cmd, "dns") {
 		opts.dns = value
 	}
-	if value, ok := firstString(config.HTTP.UserAgent, config.HTTP.UserAgentSnake, config.HTTP.UserAgentCamel); ok && !flagChanged(cmd, "user-agent") {
+	if value, ok := firstString(config.HTTP.UserAgent); ok && !flagChanged(cmd, "user-agent") {
 		opts.userAgent = value
 	}
 	return nil
