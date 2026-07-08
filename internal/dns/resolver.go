@@ -63,44 +63,141 @@ func NewResolver(opts ResolverOptions) (Resolver, error) {
 	}
 }
 
-func ParseResolver(value string) (Resolver, error) {
-	text := strings.TrimSpace(value)
-	switch strings.ToLower(text) {
-	case "", "system", "default", "env":
+func ParseResolver(values ...string) (Resolver, error) {
+	values = compactResolverValues(values)
+	if len(values) == 0 {
 		return nil, nil
 	}
 
+	resolvers := make([]Resolver, 0, len(values))
+	for _, value := range values {
+		resolver, system, err := parseSingleResolver(value)
+		if err != nil {
+			return nil, err
+		}
+		if resolver != nil {
+			resolvers = append(resolvers, resolver)
+			continue
+		}
+		if system && len(values) > 1 {
+			resolvers = append(resolvers, NewSystemResolver())
+		}
+	}
+	return NewMultiResolver(resolvers...), nil
+}
+
+func parseSingleResolver(value string) (Resolver, bool, error) {
+	text := strings.TrimSpace(value)
+	switch strings.ToLower(text) {
+	case "", "system", "default", "env":
+		return nil, true, nil
+	}
+
 	if !strings.Contains(text, "://") {
-		return NewDNSResolver("udp", text), nil
+		return NewDNSResolver("udp", text), false, nil
 	}
 
 	u, err := url.Parse(text)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "dns", "udp":
-		return NewDNSResolver("udp", resolverAddress(u, text)), nil
+		return NewDNSResolver("udp", resolverAddress(u, text)), false, nil
 	case "tcp":
-		return NewDNSResolver("tcp", resolverAddress(u, text)), nil
+		return NewDNSResolver("tcp", resolverAddress(u, text)), false, nil
 	case "tls", "dot":
 		serverName := u.Query().Get("name")
 		if serverName == "" {
 			serverName = u.Query().Get("server_name")
 		}
-		return NewDoTResolver(resolverAddress(u, text), serverName, 0), nil
+		return NewDoTResolver(resolverAddress(u, text), serverName, 0), false, nil
 	case "https":
-		return NewDoHResolver(text, nil)
+		resolver, err := NewDoHResolver(text, nil)
+		return resolver, false, err
 	case "doh":
 		endpoint := "https://" + strings.TrimPrefix(text, "doh://")
-		return NewDoHResolver(endpoint, nil)
+		resolver, err := NewDoHResolver(endpoint, nil)
+		return resolver, false, err
 	default:
-		return nil, fmt.Errorf("unknown resolver %q", value)
+		return nil, false, fmt.Errorf("unknown resolver %q", value)
 	}
 }
 
 func NewSystemResolver() Resolver {
 	return resolverFunc(net.DefaultResolver.LookupIPAddr)
+}
+
+func NewMultiResolver(resolvers ...Resolver) Resolver {
+	compacted := make([]Resolver, 0, len(resolvers))
+	for _, resolver := range resolvers {
+		if resolver != nil {
+			compacted = append(compacted, resolver)
+		}
+	}
+	switch len(compacted) {
+	case 0:
+		return nil
+	case 1:
+		return compacted[0]
+	default:
+		return &multiResolver{resolvers: append([]Resolver(nil), compacted...)}
+	}
+}
+
+type multiResolver struct {
+	resolvers []Resolver
+}
+
+type resolverResult struct {
+	ips []net.IPAddr
+	err error
+}
+
+func (r *multiResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IPAddr{{IP: ip}}, nil
+	}
+	if len(r.resolvers) == 0 {
+		return nil, &net.DNSError{Err: "no resolver configured", Name: host}
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(chan resolverResult, len(r.resolvers))
+	for _, resolver := range r.resolvers {
+		go func() {
+			ips, err := resolver.LookupIPAddr(ctx, host)
+			select {
+			case results <- resolverResult{ips: ips, err: err}:
+			case <-ctx.Done():
+			}
+		}()
+	}
+
+	var lastErr error
+	for range r.resolvers {
+		select {
+		case result := <-results:
+			if len(result.ips) > 0 {
+				cancel()
+				return result.ips, nil
+			}
+			if result.err != nil {
+				lastErr = result.err
+			}
+		case <-ctx.Done():
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, ctx.Err()
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, &net.DNSError{Err: "no such host", Name: host}
 }
 
 func NewDNSResolver(network string, address string) Resolver {
@@ -308,4 +405,26 @@ func serverNameFromAddress(address string) string {
 		return strings.Trim(address, "[]")
 	}
 	return strings.Trim(host, "[]")
+}
+
+func splitResolverValues(value string) []string {
+	return strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r'
+	})
+}
+
+func compactResolverValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, part := range splitResolverValues(value) {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
 }
