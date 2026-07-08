@@ -167,7 +167,7 @@ For parallel range downloads, `HTTPClients` can be supplied when you want full c
 
 ## Releases
 
-The GitHub Actions workflow builds CLI binaries for macOS, Linux, and Windows. Pushes to `main` update `pre-release`; tags matching `v*` publish a normal release.
+The GitHub Actions workflow builds CLI binaries for macOS, Linux, Android, and Windows. Pushes to `main` update `pre-release`; tags matching `v*` publish a normal release.
 
 ## License
 
