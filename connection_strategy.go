@@ -99,9 +99,9 @@ func ParseAddressFamily(value string) (AddressFamily, error) {
 	switch normalized {
 	case "", "auto", "dual", "dual-stack", "all", "any":
 		return AddressFamilyAuto, nil
-	case "4", "v4", "ip4", "ipv4", "tcp4":
+	case "4", "v4", "ip4", "ipv4", "tcp4", "ipv4-only", "v4-only", "ip4-only", "only-ipv4", "only-v4", "only-ip4":
 		return AddressFamilyIPv4, nil
-	case "6", "v6", "ip6", "ipv6", "tcp6":
+	case "6", "v6", "ip6", "ipv6", "tcp6", "ipv6-only", "v6-only", "ip6-only", "only-ipv6", "only-v6", "only-ip6":
 		return AddressFamilyIPv6, nil
 	case "prefer4", "prefer-v4", "prefer-ip4", "prefer-ipv4", "ipv4-preferred", "v4-first":
 		return AddressFamilyPreferIPv4, nil
