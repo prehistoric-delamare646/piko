@@ -23,6 +23,7 @@ type cliOptions struct {
 	headers      []string
 	proxy        string
 	dns          string
+	dnsServers   []string
 	userAgent    string
 }
 

@@ -52,7 +52,7 @@ piko --proxy direct https://example.com/file.pkg
 
 # Custom DNS
 piko --dns udp://1.1.1.1 https://example.com/file.pkg
-piko --dns dot://1.1.1.1?name=cloudflare-dns.com https://example.com/file.pkg
+piko --dns dot://cloudflare-dns.com https://example.com/file.pkg
 piko --dns https://cloudflare-dns.com/dns-query https://example.com/file.pkg
 ```
 

@@ -26,7 +26,12 @@ network:
   proxy: direct
 
   # system, udp://, tcp://, dot://, or https:// DoH URL.
-  dns: system
+  # A single string is also valid: dns: system
+  dns:
+    - system
+    - udp://1.1.1.1
+    - dot://cloudflare-dns.com
+    - https://cloudflare-dns.com/dns-query
 
   # round-robin, sequential, or fastest.
   connect-strategy: round-robin

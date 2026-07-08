@@ -29,7 +29,12 @@ func run(ctx context.Context, rawURL string, opts cliOptions) error {
 	}
 	headers := parseHeaders(opts.headers)
 	var resolver piko.Resolver
-	if opts.dns != "" {
+	if len(opts.dnsServers) > 0 {
+		resolver, err = piko.ParseResolver(opts.dnsServers...)
+		if err != nil {
+			return err
+		}
+	} else if opts.dns != "" {
 		resolver, err = piko.ParseResolver(opts.dns)
 		if err != nil {
 			return err

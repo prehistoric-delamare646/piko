@@ -29,31 +29,37 @@ type fileConfig struct {
 }
 
 type downloadConfig struct {
-	Output       *string         `json:"output" yaml:"output" toml:"output"`
-	Force        *bool           `json:"force" yaml:"force" toml:"force"`
-	Connections  *int            `json:"connections" yaml:"connections" toml:"connections"`
-	Retry        *int            `json:"retry" yaml:"retry" toml:"retry"`
-	PartSize     *string         `json:"part-size" yaml:"part-size" toml:"part-size"`
-	Timeout      *configDuration `json:"timeout" yaml:"timeout" toml:"timeout"`
-	StallTimeout *configDuration `json:"stall-timeout" yaml:"stall-timeout" toml:"stall-timeout"`
+	Output       *string        `json:"output" yaml:"output" toml:"output"`
+	Force        *bool          `json:"force" yaml:"force" toml:"force"`
+	Connections  *int           `json:"connections" yaml:"connections" toml:"connections"`
+	Retry        *int           `json:"retry" yaml:"retry" toml:"retry"`
+	PartSize     *string        `json:"part-size" yaml:"part-size" toml:"part-size"`
+	Timeout      configDuration `json:"timeout" yaml:"timeout" toml:"timeout"`
+	StallTimeout configDuration `json:"stall-timeout" yaml:"stall-timeout" toml:"stall-timeout"`
 }
 
 type httpConfig struct {
-	Protocol  *string       `json:"protocol" yaml:"protocol" toml:"protocol"`
-	UserAgent *string       `json:"user-agent" yaml:"user-agent" toml:"user-agent"`
-	Headers   configHeaders `json:"headers" yaml:"headers" toml:"headers"`
+	Protocol  *string          `json:"protocol" yaml:"protocol" toml:"protocol"`
+	UserAgent *string          `json:"user-agent" yaml:"user-agent" toml:"user-agent"`
+	Headers   stringListConfig `json:"headers" yaml:"headers" toml:"headers"`
 }
 
 type networkConfig struct {
-	Proxy           *string `json:"proxy" yaml:"proxy" toml:"proxy"`
-	DNS             *string `json:"dns" yaml:"dns" toml:"dns"`
-	ConnectStrategy *string `json:"connect-strategy" yaml:"connect-strategy" toml:"connect-strategy"`
-	IPFamily        *string `json:"ip-family" yaml:"ip-family" toml:"ip-family"`
+	Proxy           *string          `json:"proxy" yaml:"proxy" toml:"proxy"`
+	DNS             stringListConfig `json:"dns" yaml:"dns" toml:"dns"`
+	ConnectStrategy *string          `json:"connect-strategy" yaml:"connect-strategy" toml:"connect-strategy"`
+	IPFamily        *string          `json:"ip-family" yaml:"ip-family" toml:"ip-family"`
 }
 
-type configHeaders []string
+type stringListConfig struct {
+	Values []string
+	Set    bool
+}
 
-type configDuration time.Duration
+type configDuration struct {
+	Duration time.Duration
+	Set      bool
+}
 
 func defaultConfigDir() string {
 	return "~/" + defaultConfigDirName
@@ -68,48 +74,28 @@ func applyConfig(cmd *cobra.Command, opts *cliOptions) error {
 		return nil
 	}
 
-	if value, ok := firstString(config.Download.Output); ok && !flagChanged(cmd, "output") {
-		opts.output = value
+	applyValue(cmd, "output", &opts.output, config.Download.Output)
+	applyValue(cmd, "force", &opts.force, config.Download.Force)
+	applyValue(cmd, "connections", &opts.connections, config.Download.Connections)
+	applyValue(cmd, "retry", &opts.retries, config.Download.Retry)
+	applyValue(cmd, "part-size", &opts.partSize, config.Download.PartSize)
+	if config.Download.Timeout.Set && !flagChanged(cmd, "timeout") {
+		opts.timeout = config.Download.Timeout.Duration
 	}
-	if value, ok := firstBool(config.Download.Force); ok && !flagChanged(cmd, "force") {
-		opts.force = value
+	if config.Download.StallTimeout.Set && !flagChanged(cmd, "stall-timeout") {
+		opts.stallTimeout = config.Download.StallTimeout.Duration
 	}
-	if value, ok := firstInt(config.Download.Connections); ok && !flagChanged(cmd, "connections") {
-		opts.connections = value
+	applyValue(cmd, "http", &opts.protocol, config.HTTP.Protocol)
+	applyValue(cmd, "connect-strategy", &opts.strategy, config.Network.ConnectStrategy)
+	applyValue(cmd, "ip-family", &opts.ipFamily, config.Network.IPFamily)
+	if config.HTTP.Headers.Set && !flagChanged(cmd, "header") {
+		opts.headers = config.HTTP.Headers.Values
 	}
-	if value, ok := firstInt(config.Download.Retry); ok && !flagChanged(cmd, "retry") {
-		opts.retries = value
+	applyValue(cmd, "proxy", &opts.proxy, config.Network.Proxy)
+	if config.Network.DNS.Set && !flagChanged(cmd, "dns") {
+		opts.dnsServers = compactStrings(config.Network.DNS.Values)
 	}
-	if value, ok := firstString(config.Download.PartSize); ok && !flagChanged(cmd, "part-size") {
-		opts.partSize = value
-	}
-	if value, ok := firstDuration(config.Download.Timeout); ok && !flagChanged(cmd, "timeout") {
-		opts.timeout = value
-	}
-	if value, ok := firstDuration(config.Download.StallTimeout); ok && !flagChanged(cmd, "stall-timeout") {
-		opts.stallTimeout = value
-	}
-	if value, ok := firstString(config.HTTP.Protocol); ok && !flagChanged(cmd, "http") {
-		opts.protocol = value
-	}
-	if value, ok := firstString(config.Network.ConnectStrategy); ok && !flagChanged(cmd, "connect-strategy") {
-		opts.strategy = value
-	}
-	if value, ok := firstString(config.Network.IPFamily); ok && !flagChanged(cmd, "ip-family") {
-		opts.ipFamily = value
-	}
-	if len(config.HTTP.Headers) > 0 && !flagChanged(cmd, "header") {
-		opts.headers = []string(config.HTTP.Headers)
-	}
-	if value, ok := firstString(config.Network.Proxy); ok && !flagChanged(cmd, "proxy") {
-		opts.proxy = value
-	}
-	if value, ok := firstString(config.Network.DNS); ok && !flagChanged(cmd, "dns") {
-		opts.dns = value
-	}
-	if value, ok := firstString(config.HTTP.UserAgent); ok && !flagChanged(cmd, "user-agent") {
-		opts.userAgent = value
-	}
+	applyValue(cmd, "user-agent", &opts.userAgent, config.HTTP.UserAgent)
 	return nil
 }
 
@@ -200,118 +186,117 @@ func flagChanged(cmd *cobra.Command, names ...string) bool {
 	return false
 }
 
-func firstString(values ...*string) (string, bool) {
-	for _, value := range values {
-		if value != nil {
-			return *value, true
-		}
-	}
-	return "", false
-}
-
-func firstBool(values ...*bool) (bool, bool) {
-	for _, value := range values {
-		if value != nil {
-			return *value, true
-		}
-	}
-	return false, false
-}
-
-func firstInt(values ...*int) (int, bool) {
-	for _, value := range values {
-		if value != nil {
-			return *value, true
-		}
-	}
-	return 0, false
-}
-
-func firstDuration(values ...*configDuration) (time.Duration, bool) {
-	for _, value := range values {
-		if value != nil {
-			return time.Duration(*value), true
-		}
-	}
-	return 0, false
-}
-
-func (h *configHeaders) UnmarshalText(text []byte) error {
-	*h = configHeaders{string(text)}
-	return nil
-}
-
-func (h *configHeaders) UnmarshalJSON(data []byte) error {
-	var values []string
-	if err := json.Unmarshal(data, &values); err == nil {
-		*h = values
-		return nil
-	}
-
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
-		return fmt.Errorf("headers must be a string or string array")
-	}
-	*h = configHeaders{value}
-	return nil
-}
-
-func (h *configHeaders) UnmarshalYAML(value *yaml.Node) error {
-	switch value.Kind {
-	case yaml.SequenceNode:
-		headers := make([]string, 0, len(value.Content))
-		for _, item := range value.Content {
-			if item.Kind != yaml.ScalarNode {
-				return fmt.Errorf("headers must contain only strings")
-			}
-			headers = append(headers, item.Value)
-		}
-		*h = headers
-		return nil
-	case yaml.ScalarNode:
-		*h = configHeaders{value.Value}
-		return nil
-	default:
-		return fmt.Errorf("headers must be a string or string array")
+func applyValue[T any](cmd *cobra.Command, flag string, target *T, value *T) {
+	if value != nil && !flagChanged(cmd, flag) {
+		*target = *value
 	}
 }
 
-func (d *configDuration) UnmarshalText(text []byte) error {
-	duration, err := time.ParseDuration(string(text))
+func (l *stringListConfig) UnmarshalJSON(data []byte) error {
+	return unmarshalConfigJSON(data, l.set)
+}
+
+func (l *stringListConfig) UnmarshalYAML(value *yaml.Node) error {
+	return unmarshalConfigYAML(value, l.set)
+}
+
+func (l *stringListConfig) UnmarshalTOML(value any) error {
+	return l.set(value)
+}
+
+func (l *stringListConfig) set(value any) error {
+	values, err := stringListFromAny(value)
 	if err != nil {
 		return err
 	}
-	*d = configDuration(duration)
+	l.Values = values
+	l.Set = true
 	return nil
+}
+
+func stringListFromAny(value any) ([]string, error) {
+	switch v := value.(type) {
+	case nil:
+		return nil, nil
+	case string:
+		return []string{v}, nil
+	case []string:
+		return v, nil
+	case []any:
+		values := make([]string, 0, len(v))
+		for _, item := range v {
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("list must contain only strings")
+			}
+			values = append(values, text)
+		}
+		return values, nil
+	default:
+		return nil, fmt.Errorf("value must be a string or string array")
+	}
+}
+
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func (d *configDuration) UnmarshalJSON(data []byte) error {
-	var value string
-	if err := json.Unmarshal(data, &value); err == nil {
-		return d.UnmarshalText([]byte(value))
-	}
-
-	var seconds float64
-	if err := json.Unmarshal(data, &seconds); err != nil {
-		return fmt.Errorf("duration must be a string or seconds")
-	}
-	*d = configDuration(time.Duration(seconds * float64(time.Second)))
-	return nil
+	return unmarshalConfigJSON(data, d.set)
 }
 
 func (d *configDuration) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind != yaml.ScalarNode {
-		return fmt.Errorf("duration must be a string or seconds")
-	}
-	if duration, err := time.ParseDuration(value.Value); err == nil {
-		*d = configDuration(duration)
-		return nil
-	}
+	return unmarshalConfigYAML(value, d.set)
+}
 
-	var seconds float64
-	if err := value.Decode(&seconds); err != nil {
-		return fmt.Errorf("duration must be a string or seconds")
+func (d *configDuration) UnmarshalTOML(value any) error {
+	return d.set(value)
+}
+
+func (d *configDuration) set(value any) error {
+	duration, err := durationFromAny(value)
+	if err != nil {
+		return err
 	}
-	*d = configDuration(time.Duration(seconds * float64(time.Second)))
+	d.Duration = duration
+	d.Set = true
 	return nil
+}
+
+func durationFromAny(value any) (time.Duration, error) {
+	switch v := value.(type) {
+	case string:
+		return time.ParseDuration(v)
+	case int64:
+		return time.Duration(v) * time.Second, nil
+	case int:
+		return time.Duration(v) * time.Second, nil
+	case float64:
+		return time.Duration(v * float64(time.Second)), nil
+	default:
+		return 0, fmt.Errorf("duration must be a string or seconds")
+	}
+}
+
+func unmarshalConfigJSON(data []byte, set func(any) error) error {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	return set(value)
+}
+
+func unmarshalConfigYAML(node *yaml.Node, set func(any) error) error {
+	var value any
+	if err := node.Decode(&value); err != nil {
+		return err
+	}
+	return set(value)
 }
