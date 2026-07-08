@@ -17,7 +17,7 @@ Or download prebuilt binaries from GitHub Releases.
 ## CLI
 
 ```bash
-piko [options] <url> [output]
+piko [flags] <url> [output]
 ```
 
 Examples:

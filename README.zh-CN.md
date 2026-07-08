@@ -17,7 +17,7 @@ go install github.com/UruhaLushia/piko/cmd/piko@latest
 ## CLI
 
 ```bash
-piko [options] <url> [output]
+piko [flags] <url> [output]
 ```
 
 示例：

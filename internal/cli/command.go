@@ -43,20 +43,20 @@ func NewRootCommand() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:           "piko [options] <url> [output]",
+		Use:           "piko <url> [output]",
 		Short:         "A small parallel downloader",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) < 1 {
-				return fmt.Errorf("missing url")
-			}
 			if len(args) > 2 {
 				return fmt.Errorf("too many positional arguments")
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 1 {
+				return cmd.Help()
+			}
 			if err := applyConfig(cmd, &opts); err != nil {
 				return err
 			}
