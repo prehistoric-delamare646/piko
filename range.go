@@ -13,15 +13,22 @@ import (
 )
 
 type part struct {
-	index    int
-	start    int64
-	end      int64
-	requeues int
+	index     int
+	start     int64
+	end       int64
+	requeues  int
+	rateProbe bool
 }
 
 type rangeConnection struct {
 	conn net.Conn
 	key  string
+}
+
+func closeConn(conn net.Conn) {
+	if conn != nil {
+		_ = conn.Close()
+	}
 }
 
 func (p part) length() int64 {
@@ -99,7 +106,7 @@ func (d *downloader) downloadPartsToWriter(ctx context.Context, writer io.Writer
 				if err := ctx.Err(); err != nil {
 					return
 				}
-				p, ok := scheduler.nextPart(workerID)
+				active, ok := scheduler.nextPart(workerID)
 				if !ok {
 					if scheduler.hasInFlight() {
 						if err := sleepWithContext(ctx, idlePartPoll); err != nil {
@@ -109,26 +116,15 @@ func (d *downloader) downloadPartsToWriter(ctx context.Context, writer io.Writer
 					}
 					return
 				}
-				active := scheduler.activate(workerID, p)
+				p := active.part
 				started := time.Now()
-				offset, err := d.downloadRange(ctx, client, writer, active)
+				offset, err := d.downloadRange(ctx, client, writer, active, p.probeIdleTimeout())
 				scheduler.finish(workerID, active)
 				if err != nil {
 					p.end = active.end.Load()
 					if ctx.Err() == nil && isRetryableDownloadError(err) {
-						rateLimited := isRateLimitedDownloadError(err)
-						maxRequeues := max(d.retries*4, 8)
-						delay := time.Duration(0)
-						if rateLimited {
-							maxRequeues = max(d.retries*16, 64)
-							delay = rateLimitDelay(p.requeues)
-							if p.end-offset+1 <= max(partSize, int64(minDynamicPartSize*2)) {
-								delay = 0
-							}
-						} else {
-							scheduler.penalize(workerID)
-						}
-						if scheduler.requeue(p, offset, maxRequeues, delay) {
+						retry := d.planRangeRetry(scheduler, workerID, p, offset, partSize, err)
+						if scheduler.requeue(p, offset, retry.maxRequeues, retry.delay) {
 							continue
 						}
 						err = fmt.Errorf("part %d retry budget exhausted at byte %d: %w", p.index, offset, err)
@@ -140,6 +136,7 @@ func (d *downloader) downloadPartsToWriter(ctx context.Context, writer io.Writer
 					}
 					return
 				}
+				scheduler.confirmRateProbe(p)
 				scheduler.record(workerID, max(offset-p.start, 0), time.Since(started))
 			}
 		})
@@ -160,7 +157,7 @@ func (d *downloader) downloadPartsToWriter(ctx context.Context, writer io.Writer
 	return nil
 }
 
-func (d *downloader) downloadRange(ctx context.Context, client *http.Client, writer io.WriterAt, active *activePart) (int64, error) {
+func (d *downloader) downloadRange(ctx context.Context, client *http.Client, writer io.WriterAt, active *activePart, probeIdleTimeout time.Duration) (int64, error) {
 	p := active.part
 	offset := p.start
 	var lastErr error
@@ -175,6 +172,7 @@ func (d *downloader) downloadRange(ctx context.Context, client *http.Client, wri
 		active.offset.Store(offset)
 
 		attemptCtx, attemptCancel := context.WithCancel(ctx)
+		probeTimer := newRateProbeTimer(probeIdleTimeout, attemptCancel)
 		connInfo := &rangeConnection{}
 		attemptCtx = httptrace.WithClientTrace(attemptCtx, &httptrace.ClientTrace{
 			GotConn: func(info httptrace.GotConnInfo) {
@@ -189,6 +187,7 @@ func (d *downloader) downloadRange(ctx context.Context, client *http.Client, wri
 		}
 		req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, d.url, nil)
 		if err != nil {
+			probeTimer.stop()
 			finishAttempt()
 			return offset, err
 		}
@@ -198,11 +197,17 @@ func (d *downloader) downloadRange(ctx context.Context, client *http.Client, wri
 		attemptStart := offset
 		attemptStarted := time.Now()
 		resp, err := client.Do(req)
+		probeTimer.stop()
 		if err != nil {
+			if probeTimer.expired() && ctx.Err() == nil {
+				closeConn(connInfo.conn)
+				err = errRateProbeTimeout
+			}
 			if resp != nil {
 				resp.Body.Close()
 			}
 			d.recordIPAttempt(connInfo.key, offset-attemptStart, time.Since(attemptStarted), err)
+			attemptCanceled := attemptCtx.Err() != nil
 			finishAttempt()
 			if offset > active.end.Load() {
 				return offset, nil
@@ -211,17 +216,16 @@ func (d *downloader) downloadRange(ctx context.Context, client *http.Client, wri
 			if !isRetryableDownloadError(err) {
 				return offset, err
 			}
-			if ctx.Err() == nil && attemptCtx.Err() != nil {
+			if ctx.Err() == nil && attemptCanceled {
 				return offset, err
 			}
 		} else {
-			err = d.copyRange(attemptCtx, attemptCancel, writer, resp, p.index, attemptStart, end, &offset, active, partLease(p), connInfo.conn)
+			err = d.copyRange(attemptCtx, attemptCancel, writer, resp, p.index, attemptStart, end, &offset, active, partLease(p), connInfo.conn, probeIdleTimeout)
+			attemptCanceled := attemptCtx.Err() != nil
 			closeRange := shouldCloseRangeConnection(err, offset, end, active.end.Load())
 			if closeRange {
 				attemptCancel()
-				if connInfo.conn != nil {
-					_ = connInfo.conn.Close()
-				}
+				closeConn(connInfo.conn)
 			}
 			resp.Body.Close()
 			d.recordIPAttempt(connInfo.key, offset-attemptStart, time.Since(attemptStarted), err)
@@ -239,7 +243,7 @@ func (d *downloader) downloadRange(ctx context.Context, client *http.Client, wri
 			if isRateLimitedDownloadError(err) {
 				return offset, err
 			}
-			if ctx.Err() == nil && (offset > attemptStart || attemptCtx.Err() != nil) {
+			if ctx.Err() == nil && (offset > attemptStart || attemptCanceled) {
 				return offset, err
 			}
 		}
@@ -260,7 +264,7 @@ func shouldCloseRangeConnection(err error, offset int64, requestEnd int64, activ
 	return activeEnd < requestEnd || offset <= requestEnd
 }
 
-func (d *downloader) copyRange(ctx context.Context, cancel context.CancelFunc, writer io.WriterAt, resp *http.Response, partIndex int, requestStart int64, requestEnd int64, offset *int64, active *activePart, lease time.Duration, conn net.Conn) error {
+func (d *downloader) copyRange(ctx context.Context, cancel context.CancelFunc, writer io.WriterAt, resp *http.Response, partIndex int, requestStart int64, requestEnd int64, offset *int64, active *activePart, lease time.Duration, conn net.Conn, probeIdleTimeout time.Duration) error {
 	if resp.StatusCode != http.StatusPartialContent {
 		return httpStatusError{partIndex: partIndex, code: resp.StatusCode, status: resp.Status}
 	}
@@ -269,7 +273,7 @@ func (d *downloader) copyRange(ctx context.Context, cancel context.CancelFunc, w
 	}
 
 	buffered := shouldBufferRangeWrite(writer, requestEnd-requestStart+1)
-	return d.copyRangeBody(ctx, cancel, writer, resp.Body, requestStart, offset, active, lease, conn, buffered)
+	return d.copyRangeBody(ctx, cancel, writer, resp.Body, requestStart, offset, active, lease, conn, buffered, probeIdleTimeout)
 }
 
 func shouldBufferRangeWrite(writer io.WriterAt, size int64) bool {
@@ -284,7 +288,7 @@ func shouldBufferRangeWrite(writer io.WriterAt, size int64) bool {
 	}
 }
 
-func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFunc, writer io.WriterAt, reader io.Reader, requestStart int64, offset *int64, active *activePart, lease time.Duration, conn net.Conn, buffered bool) error {
+func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFunc, writer io.WriterAt, reader io.Reader, requestStart int64, offset *int64, active *activePart, lease time.Duration, conn net.Conn, buffered bool, probeIdleTimeout time.Duration) error {
 	state := rangeWriteState{
 		d:        d,
 		writer:   writer,
@@ -302,6 +306,11 @@ func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFun
 	}
 	stopLease := startLeaseMonitor(cancel, lease)
 	defer stopLease()
+	probeTimer := newRateProbeTimer(probeIdleTimeout, func() {
+		cancel()
+		closeConn(conn)
+	})
+	defer probeTimer.stop()
 
 	speedID := d.registerRangeSpeed()
 	defer d.unregisterRangeSpeed(speedID)
@@ -312,6 +321,9 @@ func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFun
 
 	for {
 		if err := ctx.Err(); err != nil {
+			if probeTimer.expired() {
+				return state.finish(errRateProbeTimeout)
+			}
 			return state.finish(err)
 		}
 
@@ -322,6 +334,7 @@ func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFun
 		readSize := min(int64(len(buf)), end-*offset+1)
 		n, readErr := reader.Read(buf[:int(readSize)])
 		if n > 0 {
+			probeTimer.reset(probeIdleTimeout)
 			if progress != nil {
 				select {
 				case progress <- struct{}{}:
@@ -346,9 +359,7 @@ func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFun
 					lastCheck = now
 					lastOffset = *offset
 					if slowStrikes >= slowConnectionStrikes {
-						if conn != nil {
-							_ = conn.Close()
-						}
+						closeConn(conn)
 						cancel()
 						return state.finish(errSlowConnection)
 					}
@@ -366,6 +377,9 @@ func (d *downloader) copyRangeBody(ctx context.Context, cancel context.CancelFun
 			return state.finish(io.ErrUnexpectedEOF)
 		}
 		if readErr != nil {
+			if probeTimer.expired() {
+				return state.finish(errRateProbeTimeout)
+			}
 			if *offset > end {
 				return state.flush()
 			}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,8 @@ type contentRangeError struct {
 	value     string
 	expected  string
 }
+
+var errRateProbeTimeout = errors.New("rate probe timeout")
 
 func (e contentRangeError) Error() string {
 	return fmt.Sprintf("part %d invalid Content-Range %q, expected %s", e.partIndex, e.value, e.expected)
@@ -75,4 +78,29 @@ func isRetryableDownloadError(err error) bool {
 func isRateLimitedDownloadError(err error) bool {
 	var statusErr httpStatusError
 	return errors.As(err, &statusErr) && statusErr.code == http.StatusTooManyRequests
+}
+
+func isRateProbeTimeout(err error) bool {
+	return errors.Is(err, errRateProbeTimeout)
+}
+
+func isTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var statusErr httpStatusError
+	if errors.As(err, &statusErr) {
+		return false
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+func isTransientRangeError(err error) bool {
+	return isTransientNetworkError(err) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
 }
